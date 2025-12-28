@@ -61,6 +61,7 @@ function init() {
     controls.maxDistance = 20;
 
     // 6. Build Cube
+    scene.add(pivot);
     createRubiksCube();
 
     // 7. Event Listeners
@@ -162,8 +163,9 @@ let rotationAxis = null; // 'x', 'y', or 'z' in 3D
 let isRotating = false;
 
 // Pivot for rotation
+// Pivot for rotation
 const pivot = new THREE.Object3D();
-scene.add(pivot);
+// scene.add(pivot) moved to init()
 let activeCubies = []; // Cubies currently being rotated
 
 // Raycasting helper
