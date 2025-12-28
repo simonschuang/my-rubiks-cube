@@ -1,0 +1,11 @@
+{
+  "name": "rubiks-cube-3d",
+  "version": "1.0.0",
+  "description": "3D Rubik's Cube Game",
+  "scripts": {
+    "test": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.1"
+  }
+}
