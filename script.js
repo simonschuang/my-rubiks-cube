@@ -289,8 +289,20 @@ function onMouseUp(event) {
     controls.enabled = true;
 }
 
-function onTouchStart(event) { onMouseDown(event); }
-function onTouchMove(event) { onMouseMove(event); }
+function onTouchStart(event) {
+    if (event.touches.length > 1) {
+        // Multi-touch: allow OrbitControls to handle it, cancel any single-touch drag logic
+        isDragging = false;
+        controls.enabled = true;
+        return;
+    }
+    onMouseDown(event);
+}
+
+function onTouchMove(event) {
+    if (event.touches.length > 1) return;
+    onMouseMove(event);
+}
 function onTouchEnd(event) { onMouseUp(event); }
 
 function determineRotationAxis(dx, dy) {
