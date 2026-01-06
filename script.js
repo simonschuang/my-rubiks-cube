@@ -31,7 +31,8 @@ function init() {
 
     // 2. Camera
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(6, 4, 6);
+
+    updateCameraPosition();
 
     // 3. Renderer
     const container = document.getElementById('canvas-container');
@@ -440,7 +441,21 @@ function resetCube() {
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
+
     renderer.setSize(window.innerWidth, window.innerHeight);
+    updateCameraPosition();
+}
+
+function updateCameraPosition() {
+    // If mobile (portrait or small width), move camera back
+    if (window.innerWidth < 768) {
+        // Further out
+        camera.position.set(9, 6, 9);
+    } else {
+        // Desktop / default
+        camera.position.set(6, 4, 6);
+    }
+    controls.update();
 }
 
 function animate() {
