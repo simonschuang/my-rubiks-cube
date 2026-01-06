@@ -32,7 +32,7 @@ function init() {
     // 2. Camera
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
 
-    updateCameraPosition();
+
 
     // 3. Renderer
     const container = document.getElementById('canvas-container');
@@ -60,6 +60,8 @@ function init() {
     controls.enablePan = false;
     controls.minDistance = 5;
     controls.maxDistance = 20;
+
+    updateCameraPosition();
 
     // 6. Build Cube
     scene.add(pivot);
