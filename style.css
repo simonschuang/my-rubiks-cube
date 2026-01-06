@@ -21,7 +21,6 @@ body {
     width: 100vw;
     height: 100vh;
     background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
-    touch-action: none;
 }
 
 #canvas-container {
@@ -83,15 +82,6 @@ h1 {
 
 .controls-info p:last-child {
     margin-bottom: 0;
-}
-
-/* Default State (Desktop) */
-.mobile-instructions {
-    display: none;
-}
-
-.desktop-instructions {
-    display: block;
 }
 
 .button-group {
@@ -170,13 +160,5 @@ button:active {
         max-width: 200px;
         padding: 0.75rem 1.5rem;
         font-size: 0.9rem;
-    }
-
-    .desktop-instructions {
-        display: none;
-    }
-
-    .mobile-instructions {
-        display: block;
     }
 }

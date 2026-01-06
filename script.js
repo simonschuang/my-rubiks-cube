@@ -61,19 +61,6 @@ function init() {
     controls.minDistance = 5;
     controls.maxDistance = 20;
 
-    // Default mouse buttons configuration (Desktop)
-    controls.mouseButtons = {
-        LEFT: THREE.MOUSE.ROTATE,
-        MIDDLE: THREE.MOUSE.DOLLY,
-        RIGHT: THREE.MOUSE.PAN
-    };
-
-    // Configure touch: 1 finger = NONE (handled by our code for layers), 2 fingers = ROTATE
-    controls.touches = {
-        ONE: THREE.TOUCH.NONE,
-        TWO: THREE.TOUCH.ROTATE
-    };
-
     updateCameraPosition();
 
     // 6. Build Cube
@@ -289,20 +276,8 @@ function onMouseUp(event) {
     controls.enabled = true;
 }
 
-function onTouchStart(event) {
-    if (event.touches.length > 1) {
-        // Multi-touch: allow OrbitControls to handle it, cancel any single-touch drag logic
-        isDragging = false;
-        controls.enabled = true;
-        return;
-    }
-    onMouseDown(event);
-}
-
-function onTouchMove(event) {
-    if (event.touches.length > 1) return;
-    onMouseMove(event);
-}
+function onTouchStart(event) { onMouseDown(event); }
+function onTouchMove(event) { onMouseMove(event); }
 function onTouchEnd(event) { onMouseUp(event); }
 
 function determineRotationAxis(dx, dy) {
