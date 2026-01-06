@@ -258,8 +258,16 @@ function onMouseUp(event) {
             // Check if substantial move?
             // For now, simple logic: if enough drag, rotate 90.
             let direction = 1;
-            if (Math.abs(dx) > Math.abs(dy)) direction = dx > 0 ? 1 : -1;
-            else direction = dy > 0 ? -1 : 1;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                direction = dx > 0 ? 1 : -1;
+                // Invert for Top Face when dragging horizontally
+                if (intersectFaceNormal.y > 0.5) direction *= -1;
+            } else {
+                direction = dy > 0 ? -1 : 1;
+                // Invert for Right Face and Back Face when dragging vertically
+                if (intersectFaceNormal.x > 0.5) direction *= -1;
+                if (intersectFaceNormal.z < -0.5) direction *= -1;
+            }
 
             performRotation(direction, 300);
         } else {
