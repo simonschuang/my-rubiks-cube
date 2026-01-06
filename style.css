@@ -84,6 +84,15 @@ h1 {
     margin-bottom: 0;
 }
 
+/* Default State (Desktop) */
+.mobile-instructions {
+    display: none;
+}
+
+.desktop-instructions {
+    display: block;
+}
+
 .button-group {
     margin-top: auto;
     width: 100%;
@@ -131,20 +140,42 @@ button:active {
 
     .controls-info {
         top: 6rem;
-        left: 2rem;
-        right: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 400px;
         text-align: center;
+        font-size: 0.8rem;
+        padding: 0.75rem 1rem;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .controls-info p {
+        font-size: 0.8rem;
+        display: inline-block;
+        margin: 0 0.5rem;
     }
 
     .button-group {
         flex-direction: column;
         align-items: center;
-        gap: 1rem;
+        gap: 0.8rem;
         padding-bottom: 1rem;
     }
 
     button {
         width: 100%;
-        max-width: 300px;
+        max-width: 200px;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.9rem;
+    }
+
+    .desktop-instructions {
+        display: none;
+    }
+
+    .mobile-instructions {
+        display: block;
     }
 }

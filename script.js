@@ -61,6 +61,19 @@ function init() {
     controls.minDistance = 5;
     controls.maxDistance = 20;
 
+    // Default mouse buttons configuration (Desktop)
+    controls.mouseButtons = {
+        LEFT: THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.PAN
+    };
+
+    // Configure touch: 1 finger = NONE (handled by our code for layers), 2 fingers = ROTATE
+    controls.touches = {
+        ONE: THREE.TOUCH.NONE,
+        TWO: THREE.TOUCH.ROTATE
+    };
+
     updateCameraPosition();
 
     // 6. Build Cube
