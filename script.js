@@ -6,7 +6,9 @@ let scene, camera, renderer, controls;
 let cubeGroup;
 const cubies = []; // Array to hold all 27 mesh objects
 const raycaster = new THREE.Raycaster();
+
 const mouse = new THREE.Vector2();
+const moveHistory = []; // Stack to store moves: { axis, layerCoord, direction }
 
 // Configuration
 const CUBE_SIZE = 1; // Size of individual cubie
@@ -81,7 +83,9 @@ function init() {
     window.addEventListener('touchend', onTouchEnd);
 
     // Buttons
+    // Buttons
     document.getElementById('btn-scramble').addEventListener('click', scrambleCube);
+    document.getElementById('btn-solve').addEventListener('click', solveCube);
     document.getElementById('btn-reset').addEventListener('click', resetCube);
 
     // 8. Animation Loop
@@ -269,6 +273,22 @@ function onMouseUp(event) {
                 if (intersectFaceNormal.z < -0.5) direction *= -1;
             }
 
+            // Determine which layer we are rotating
+            // We need to find the coordinate of the layer based on the intersected cubie
+            const worldPos = new THREE.Vector3();
+            intersectCubie.getWorldPosition(worldPos);
+            let layerCoord = 0;
+            if (rotationAxis === 'x') layerCoord = worldPos.x;
+            if (rotationAxis === 'y') layerCoord = worldPos.y;
+            if (rotationAxis === 'z') layerCoord = worldPos.z;
+
+            // Round to nearest layer coordinate (approx multiples of 1.02)
+            // But we can just pass the raw worldPos to selectLayer which handles epsilon
+
+            // Record move
+            // Note: We need a clean way to store layer info. Steps of approx 1.02.
+            moveHistory.push({ axis: rotationAxis, layerCoord: layerCoord, direction: direction });
+
             performRotation(direction, 300);
         } else {
             // Didn't drag enough, just reset
@@ -320,6 +340,18 @@ function initLoopRotation() {
     const worldPos = new THREE.Vector3();
     intersectCubie.getWorldPosition(worldPos);
 
+    // Reuse selectLayer logic
+    // We already identified rotationAxis in determineRotationAxis
+    let layerCoord = 0;
+    if (rotationAxis === 'x') layerCoord = worldPos.x;
+    if (rotationAxis === 'y') layerCoord = worldPos.y;
+    if (rotationAxis === 'z') layerCoord = worldPos.z;
+
+    selectLayer(rotationAxis, layerCoord);
+}
+
+function selectLayer(axis, coord) {
+    activeCubies = [];
     const epsilon = 0.1;
 
     cubies.forEach(cubie => {
@@ -327,9 +359,9 @@ function initLoopRotation() {
         cubie.getWorldPosition(cPos);
 
         let shouldAdd = false;
-        if (rotationAxis === 'x' && Math.abs(cPos.x - worldPos.x) < epsilon) shouldAdd = true;
-        if (rotationAxis === 'y' && Math.abs(cPos.y - worldPos.y) < epsilon) shouldAdd = true;
-        if (rotationAxis === 'z' && Math.abs(cPos.z - worldPos.z) < epsilon) shouldAdd = true;
+        if (axis === 'x' && Math.abs(cPos.x - coord) < epsilon) shouldAdd = true;
+        if (axis === 'y' && Math.abs(cPos.y - coord) < epsilon) shouldAdd = true;
+        if (axis === 'z' && Math.abs(cPos.z - coord) < epsilon) shouldAdd = true;
 
         if (shouldAdd) {
             activeCubies.push(cubie);
@@ -409,28 +441,15 @@ function scrambleCube() {
 
         const direction = directions[Math.floor(Math.random() * directions.length)];
 
-        // Manual initLoopRotation logic for scramble
+        // Record move
+        moveHistory.push({ axis: rotationAxis, layerCoord: layerCoord, direction: direction });
+
+        // Manual initLoopRotation logic for scramble -> Use selectLayer
         isRotating = true;
         pivot.rotation.set(0, 0, 0);
         pivot.updateMatrixWorld();
-        activeCubies = [];
 
-        const epsilon = 0.1;
-
-        cubies.forEach(cubie => {
-            const cPos = new THREE.Vector3();
-            cubie.getWorldPosition(cPos);
-
-            let shouldAdd = false;
-            if (rotationAxis === 'x' && Math.abs(cPos.x - layerCoord) < epsilon) shouldAdd = true;
-            if (rotationAxis === 'y' && Math.abs(cPos.y - layerCoord) < epsilon) shouldAdd = true;
-            if (rotationAxis === 'z' && Math.abs(cPos.z - layerCoord) < epsilon) shouldAdd = true;
-
-            if (shouldAdd) {
-                activeCubies.push(cubie);
-                pivot.attach(cubie);
-            }
-        });
+        selectLayer(rotationAxis, layerCoord);
 
         // Fast, but sequential
         performRotation(direction, 60);
@@ -443,9 +462,38 @@ function scrambleCube() {
     nextMove();
 }
 
+function solveCube() {
+    if (isRotating || moveHistory.length === 0) return;
+
+    function nextSolveMove() {
+        if (moveHistory.length === 0) {
+            isRotating = false;
+            return;
+        }
+
+        const move = moveHistory.pop();
+        rotationAxis = move.axis; // Global var used by performRotation
+
+        isRotating = true;
+        pivot.rotation.set(0, 0, 0);
+        pivot.updateMatrixWorld();
+
+        selectLayer(move.axis, move.layerCoord);
+
+        // Reverse direction
+        performRotation(-move.direction, 100);
+
+        // Wait for animation
+        setTimeout(nextSolveMove, 120);
+    }
+
+    nextSolveMove();
+}
+
 function resetCube() {
     if (isRotating) return;
     createRubiksCube();
+    moveHistory.length = 0;
 }
 
 function onWindowResize() {
