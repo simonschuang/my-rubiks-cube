@@ -242,6 +242,14 @@ button:active {
     color: #94a3b8;
 }
 
+.scanner-status {
+    margin-top: 1rem;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: #4ade80;
+    /* Green */
+}
+
 button.secondary {
     background: transparent;
     border: 1px solid #64748b;

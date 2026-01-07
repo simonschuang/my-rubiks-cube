@@ -6,9 +6,7 @@ let scene, camera, renderer, controls;
 let cubeGroup;
 const cubies = []; // Array to hold all 27 mesh objects
 const raycaster = new THREE.Raycaster();
-
 const mouse = new THREE.Vector2();
-const moveHistory = []; // Stack to store moves: { axis, layerCoord, direction }
 
 // Configuration
 const CUBE_SIZE = 1; // Size of individual cubie
@@ -83,10 +81,7 @@ function init() {
     window.addEventListener('touchend', onTouchEnd);
 
     // Buttons
-    // Buttons
-    document.getElementById('btn-scramble').addEventListener('click', scrambleCube);
-    document.getElementById('btn-solve').addEventListener('click', solveCube);
-    document.getElementById('btn-reset').addEventListener('click', resetCube);
+    document.getElementById('btn-scan').addEventListener('click', openScanner);
 
     // 8. Animation Loop
     animate();

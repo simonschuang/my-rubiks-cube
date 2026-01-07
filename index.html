@@ -25,10 +25,7 @@
             <p><strong>Rotate Layer:</strong> Left Click + Drag Cube Face</p>
         </div>
         <div class="button-group">
-            <button id="btn-scan">Scan Face</button>
-            <button id="btn-scramble">Scramble</button>
-            <button id="btn-solve">Solve</button>
-            <button id="btn-reset">Reset</button>
+            <button id="btn-scan">Scan Cube</button>
         </div>
     </div>
     <div id="canvas-container"></div>
@@ -53,9 +50,10 @@
             </div>
             <div class="scanner-controls">
                 <button id="btn-capture">Capture</button>
-                <button id="btn-close-scanner" class="secondary">Close</button>
+                <button id="btn-close-scanner" class="secondary">Finish</button>
             </div>
-            <p class="scanner-tip">Align the face with the grid. Ensure good lighting.</p>
+            <p id="scanner-status" class="scanner-status">Scanned: 0/6</p>
+            <p class="scanner-tip">Align a face with grid, then rotate physical cube AND 3D cube to next face.</p>
         </div>
     </div>
 
