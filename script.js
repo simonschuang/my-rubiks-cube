@@ -563,12 +563,14 @@ document.getElementById('btn-capture').addEventListener('click', captureFace);
 document.getElementById('btn-confirm-face').addEventListener('click', confirmFace);
 
 // Wait for OpenCV.js to load
-function waitForOpenCV() {
-    return new Promise((resolve) => {
+function waitForOpenCV(maxAttempts = 50, attemptCount = 0) {
+    return new Promise((resolve, reject) => {
         if (typeof cv !== 'undefined' && cv.Mat) {
             resolve();
+        } else if (attemptCount >= maxAttempts) {
+            reject(new Error('OpenCV.js failed to load after ' + (maxAttempts * 100) + 'ms. Please check your internet connection and try again.'));
         } else {
-            setTimeout(() => waitForOpenCV().then(resolve), 100);
+            setTimeout(() => waitForOpenCV(maxAttempts, attemptCount + 1).then(resolve).catch(reject), 100);
         }
     });
 }
@@ -617,9 +619,19 @@ function closeScanner() {
 
 function updateFaceDisplay() {
     const faceName = FACE_ORDER[currentFaceIndex];
-    document.getElementById('current-face-name').textContent = `${faceName} (${FACE_NAMES[faceName]})`;
-    document.getElementById('face-instruction').textContent = FACE_INSTRUCTIONS[faceName];
-    document.getElementById('scanner-status').textContent = `Faces Scanned: ${scannedFaces.length}/6`;
+    const faceNameElement = document.getElementById('current-face-name');
+    const faceInstructionElement = document.getElementById('face-instruction');
+    const statusElement = document.getElementById('scanner-status');
+    
+    if (faceNameElement) {
+        faceNameElement.textContent = `${faceName} (${FACE_NAMES[faceName]})`;
+    }
+    if (faceInstructionElement) {
+        faceInstructionElement.textContent = FACE_INSTRUCTIONS[faceName];
+    }
+    if (statusElement) {
+        statusElement.textContent = `Faces Scanned: ${scannedFaces.length}/6`;
+    }
 }
 
 async function captureFace() {
@@ -657,7 +669,7 @@ async function captureFace() {
 async function processImageWithOpenCV(canvas) {
     // Check if OpenCV is loaded
     if (typeof cv === 'undefined' || !cv.Mat) {
-        throw new Error('OpenCV not loaded');
+        throw new Error('OpenCV.js is not loaded. Please ensure you have a stable internet connection and refresh the page. If the problem persists, try again later as the CDN may be temporarily unavailable.');
     }
     
     const src = cv.imread(canvas);
