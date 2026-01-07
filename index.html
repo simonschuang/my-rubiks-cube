@@ -39,6 +39,7 @@
             <p id="scanner-face-label" class="scanner-face-label">Current Face: <strong id="scanner-current-face">Up (U)</strong></p>
             <div class="video-wrapper">
                 <video id="scanner-video" autoplay playsinline></video>
+                <!-- Hidden canvas used for OpenCV.js image processing operations (frame capture, perspective correction, color sampling) -->
                 <canvas id="scanner-canvas" class="hidden"></canvas>
                 <div class="scanner-grid">
                     <div></div>
