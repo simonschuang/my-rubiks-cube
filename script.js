@@ -7,6 +7,7 @@ let cubeGroup;
 const cubies = []; // Array to hold all 27 mesh objects
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+let moveHistory = []; // Array to track rotation history
 
 // Configuration
 const CUBE_SIZE = 1; // Size of individual cubie
@@ -82,6 +83,8 @@ function init() {
 
     // Buttons
     document.getElementById('btn-scan').addEventListener('click', openScanner);
+    document.getElementById('btn-scramble').addEventListener('click', scrambleCube);
+    document.getElementById('btn-reset').addEventListener('click', resetCube);
 
     // 8. Animation Loop
     animate();
@@ -525,19 +528,76 @@ init();
 let scannerStream = null;
 const scannerModal = document.getElementById('scanner-modal');
 const scannerVideo = document.getElementById('scanner-video');
+const scannerCanvas = document.getElementById('scanner-canvas');
+const correctionGrid = document.getElementById('correction-grid');
+const colorGrid = document.getElementById('color-grid');
+const colorPicker = document.getElementById('color-picker');
+
+// Face scanning order: U, R, F, D, L, B
+const FACE_ORDER = ['U', 'R', 'F', 'D', 'L', 'B'];
+const FACE_NAMES = {
+    'U': 'Up (White)',
+    'R': 'Right (Red)',
+    'F': 'Front (Green)',
+    'D': 'Down (Yellow)',
+    'L': 'Left (Orange)',
+    'B': 'Back (Blue)'
+};
+const FACE_INSTRUCTIONS = {
+    'U': 'Position the WHITE (Up) face toward the camera',
+    'R': 'Position the RED (Right) face toward the camera',
+    'F': 'Position the GREEN (Front) face toward the camera',
+    'D': 'Position the YELLOW (Down) face toward the camera',
+    'L': 'Position the ORANGE (Left) face toward the camera',
+    'B': 'Position the BLUE (Back) face toward the camera'
+};
+
+let currentFaceIndex = 0;
+let scannedFaces = []; // Store all 6 faces as arrays of 9 colors
+let currentFaceColors = []; // Current face being edited
+let selectedCellIndex = null;
 
 document.getElementById('btn-scan').addEventListener('click', openScanner);
 document.getElementById('btn-close-scanner').addEventListener('click', closeScanner);
 document.getElementById('btn-capture').addEventListener('click', captureFace);
+document.getElementById('btn-confirm-face').addEventListener('click', confirmFace);
+
+// Wait for OpenCV.js to load
+function waitForOpenCV() {
+    return new Promise((resolve) => {
+        if (typeof cv !== 'undefined' && cv.Mat) {
+            resolve();
+        } else {
+            setTimeout(() => waitForOpenCV().then(resolve), 100);
+        }
+    });
+}
 
 async function openScanner() {
+    // Reset scanner state
+    currentFaceIndex = 0;
+    scannedFaces = [];
+    currentFaceColors = [];
+    selectedCellIndex = null;
+    
     scannerModal.classList.remove('hidden');
+    correctionGrid.classList.add('hidden');
+    document.getElementById('btn-capture').classList.remove('hidden');
+    document.getElementById('btn-confirm-face').classList.add('hidden');
+    
+    updateFaceDisplay();
+    
     try {
-        scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        scannerStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment', width: 640, height: 480 } 
+        });
         scannerVideo.srcObject = scannerStream;
+        
+        // Wait for OpenCV.js to be ready
+        await waitForOpenCV();
     } catch (err) {
-        console.error("Camera access denied:", err);
-        alert("Camera access is required to scan the cube.");
+        console.error("Camera access denied or OpenCV not loaded:", err);
+        alert("Camera access is required to scan the cube. Make sure OpenCV.js is loaded.");
         closeScanner();
     }
 }
@@ -548,35 +608,413 @@ function closeScanner() {
         scannerStream.getTracks().forEach(track => track.stop());
         scannerStream = null;
     }
+    
+    // If all 6 faces were scanned, apply them to the cube
+    if (scannedFaces.length === 6) {
+        applyAllScannedFaces();
+    }
 }
 
-function captureFace() {
-    const canvas = document.createElement('canvas');
-    canvas.width = scannerVideo.videoWidth;
-    canvas.height = scannerVideo.videoHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(scannerVideo, 0, 0, canvas.width, canvas.height);
+function updateFaceDisplay() {
+    const faceName = FACE_ORDER[currentFaceIndex];
+    document.getElementById('current-face-name').textContent = `${faceName} (${FACE_NAMES[faceName]})`;
+    document.getElementById('face-instruction').textContent = FACE_INSTRUCTIONS[faceName];
+    document.getElementById('scanner-status').textContent = `Faces Scanned: ${scannedFaces.length}/6`;
+}
 
+async function captureFace() {
+    if (!scannerVideo.videoWidth || !scannerVideo.videoHeight) {
+        alert('Video not ready. Please wait a moment.');
+        return;
+    }
+    
+    // Setup canvas
+    scannerCanvas.width = scannerVideo.videoWidth;
+    scannerCanvas.height = scannerVideo.videoHeight;
+    const ctx = scannerCanvas.getContext('2d');
+    ctx.drawImage(scannerVideo, 0, 0);
+    
+    try {
+        // Use OpenCV.js for processing
+        const colors = await processImageWithOpenCV(scannerCanvas);
+        
+        if (colors && colors.length === 9) {
+            currentFaceColors = colors;
+            showCorrectionGrid(colors);
+        } else {
+            alert('Failed to detect face. Please try again with better lighting and alignment.');
+        }
+    } catch (err) {
+        console.error('Error processing image:', err);
+        alert('Error processing image. Using simple color sampling fallback.');
+        
+        // Fallback to simple sampling
+        currentFaceColors = simpleSampleColors(scannerCanvas);
+        showCorrectionGrid(currentFaceColors);
+    }
+}
+
+async function processImageWithOpenCV(canvas) {
+    // Check if OpenCV is loaded
+    if (typeof cv === 'undefined' || !cv.Mat) {
+        throw new Error('OpenCV not loaded');
+    }
+    
+    const src = cv.imread(canvas);
+    const gray = new cv.Mat();
+    const edges = new cv.Mat();
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    
+    try {
+        // Convert to grayscale
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        
+        // Apply Gaussian blur
+        cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+        
+        // Edge detection
+        cv.Canny(gray, edges, 50, 150);
+        
+        // Find contours
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        
+        // Find the largest square-like contour (the Rubik's cube face)
+        let bestContour = null;
+        let maxArea = 0;
+        
+        for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const area = cv.contourArea(contour);
+            const peri = cv.arcLength(contour, true);
+            const approx = new cv.Mat();
+            cv.approxPolyDP(contour, approx, 0.02 * peri, true);
+            
+            // Look for quadrilateral with sufficient area
+            if (approx.rows === 4 && area > maxArea && area > 10000) {
+                maxArea = area;
+                if (bestContour) bestContour.delete();
+                bestContour = approx;
+            } else {
+                approx.delete();
+            }
+            contour.delete();
+        }
+        
+        let colors;
+        if (bestContour && maxArea > 10000) {
+            // Perform perspective correction
+            colors = extractColorsWithPerspective(src, bestContour);
+            bestContour.delete();
+        } else {
+            // Fallback to center region sampling
+            colors = sampleCenterRegion(src);
+        }
+        
+        return colors;
+    } finally {
+        // Cleanup
+        src.delete();
+        gray.delete();
+        edges.delete();
+        contours.delete();
+        hierarchy.delete();
+    }
+}
+
+function extractColorsWithPerspective(src, contour) {
+    try {
+        // Get the 4 corner points
+        const points = [];
+        for (let i = 0; i < contour.rows; i++) {
+            points.push({
+                x: contour.data32S[i * 2],
+                y: contour.data32S[i * 2 + 1]
+            });
+        }
+        
+        // Sort points to get them in order: top-left, top-right, bottom-right, bottom-left
+        points.sort((a, b) => a.y - b.y);
+        const topPoints = points.slice(0, 2).sort((a, b) => a.x - b.x);
+        const bottomPoints = points.slice(2, 4).sort((a, b) => a.x - b.x);
+        const orderedPoints = [...topPoints, ...bottomPoints];
+        
+        // Define source and destination points for perspective transform
+        const srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            orderedPoints[0].x, orderedPoints[0].y,
+            orderedPoints[1].x, orderedPoints[1].y,
+            orderedPoints[3].x, orderedPoints[3].y,
+            orderedPoints[2].x, orderedPoints[2].y
+        ]);
+        
+        const size = 300;
+        const dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            0, 0,
+            size, 0,
+            0, size,
+            size, size
+        ]);
+        
+        // Get perspective transform matrix
+        const M = cv.getPerspectiveTransform(srcPoints, dstPoints);
+        const warped = new cv.Mat();
+        cv.warpPerspective(src, warped, M, new cv.Size(size, size));
+        
+        // Sample colors from the warped image
+        const colors = sampleColorsFromMat(warped, size);
+        
+        // Cleanup
+        srcPoints.delete();
+        dstPoints.delete();
+        M.delete();
+        warped.delete();
+        
+        return colors;
+    } catch (err) {
+        console.error('Perspective transform failed:', err);
+        return sampleCenterRegion(src);
+    }
+}
+
+function sampleCenterRegion(src) {
+    // Sample from center 60% of the image
+    const centerX = src.cols / 2;
+    const centerY = src.rows / 2;
+    const regionSize = Math.min(src.cols, src.rows) * 0.6;
+    
+    const colors = [];
+    const cellSize = regionSize / 3;
+    
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = Math.floor(centerX - regionSize / 2 + col * cellSize + cellSize / 2);
+            const y = Math.floor(centerY - regionSize / 2 + row * cellSize + cellSize / 2);
+            
+            // Sample 5x5 region and average
+            let r = 0, g = 0, b = 0, count = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const px = Math.max(0, Math.min(src.cols - 1, x + dx));
+                    const py = Math.max(0, Math.min(src.rows - 1, y + dy));
+                    const idx = (py * src.cols + px) * 4;
+                    r += src.data[idx];
+                    g += src.data[idx + 1];
+                    b += src.data[idx + 2];
+                    count++;
+                }
+            }
+            
+            r = Math.floor(r / count);
+            g = Math.floor(g / count);
+            b = Math.floor(b / count);
+            
+            colors.push(findNearestColor(r, g, b));
+        }
+    }
+    
+    return colors;
+}
+
+function sampleColorsFromMat(mat, size) {
+    const colors = [];
+    const cellSize = size / 3;
+    
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = Math.floor(col * cellSize + cellSize / 2);
+            const y = Math.floor(row * cellSize + cellSize / 2);
+            
+            // Sample 5x5 region and average
+            let r = 0, g = 0, b = 0, count = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const px = Math.max(0, Math.min(size - 1, x + dx));
+                    const py = Math.max(0, Math.min(size - 1, y + dy));
+                    const idx = (py * mat.cols + px) * 4;
+                    r += mat.data[idx];
+                    g += mat.data[idx + 1];
+                    b += mat.data[idx + 2];
+                    count++;
+                }
+            }
+            
+            r = Math.floor(r / count);
+            g = Math.floor(g / count);
+            b = Math.floor(b / count);
+            
+            colors.push(findNearestColor(r, g, b));
+        }
+    }
+    
+    return colors;
+}
+
+function simpleSampleColors(canvas) {
+    const ctx = canvas.getContext('2d');
     const cellWidth = canvas.width / 3;
     const cellHeight = canvas.height / 3;
-
-    // Sample 9 points
+    
     const capturedColors = [];
     for (let row = 0; row < 3; row++) {
         for (let col = 0; col < 3; col++) {
-            // Sample center of cell
             const x = Math.floor(col * cellWidth + cellWidth / 2);
             const y = Math.floor(row * cellHeight + cellHeight / 2);
             const pixel = ctx.getImageData(x, y, 1, 1).data;
-
-            // Map to nearest standard color
+            
             const matchedColor = findNearestColor(pixel[0], pixel[1], pixel[2]);
             capturedColors.push(matchedColor);
         }
     }
+    
+    return capturedColors;
+}
 
-    applySampledColors(capturedColors);
-    closeScanner();
+function showCorrectionGrid(colors) {
+    // Hide video, show correction grid
+    document.getElementById('btn-capture').classList.add('hidden');
+    document.getElementById('btn-confirm-face').classList.remove('hidden');
+    correctionGrid.classList.remove('hidden');
+    
+    // Build the grid
+    colorGrid.innerHTML = '';
+    colors.forEach((color, index) => {
+        const cell = document.createElement('div');
+        cell.className = 'grid-cell';
+        cell.style.backgroundColor = '#' + color.toString(16).padStart(6, '0');
+        cell.dataset.index = index;
+        cell.addEventListener('click', () => selectCell(index));
+        colorGrid.appendChild(cell);
+    });
+    
+    // Setup color picker
+    document.querySelectorAll('.color-option').forEach(option => {
+        option.addEventListener('click', () => {
+            if (selectedCellIndex !== null) {
+                const colorHex = parseInt(option.dataset.color);
+                currentFaceColors[selectedCellIndex] = colorHex;
+                updateCellColor(selectedCellIndex, colorHex);
+                selectedCellIndex = null;
+                document.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('selected'));
+            }
+        });
+    });
+}
+
+function selectCell(index) {
+    selectedCellIndex = index;
+    document.querySelectorAll('.grid-cell').forEach((cell, i) => {
+        cell.classList.toggle('selected', i === index);
+    });
+}
+
+function updateCellColor(index, color) {
+    const cell = colorGrid.children[index];
+    if (cell) {
+        cell.style.backgroundColor = '#' + color.toString(16).padStart(6, '0');
+    }
+}
+
+function confirmFace() {
+    // Save this face
+    scannedFaces.push([...currentFaceColors]);
+    
+    // Move to next face or finish
+    currentFaceIndex++;
+    if (currentFaceIndex < 6) {
+        // Show video again for next face
+        correctionGrid.classList.add('hidden');
+        document.getElementById('btn-capture').classList.remove('hidden');
+        document.getElementById('btn-confirm-face').classList.add('hidden');
+        selectedCellIndex = null;
+        currentFaceColors = [];
+        updateFaceDisplay();
+    } else {
+        // All faces scanned
+        closeScanner();
+    }
+}
+
+function applyAllScannedFaces() {
+    // Apply all 6 scanned faces to the cube
+    // Face order: U(0), R(1), F(2), D(3), L(4), B(5)
+    
+    const faceNormals = [
+        new THREE.Vector3(0, 1, 0),   // U - Top
+        new THREE.Vector3(1, 0, 0),   // R - Right
+        new THREE.Vector3(0, 0, 1),   // F - Front
+        new THREE.Vector3(0, -1, 0),  // D - Bottom
+        new THREE.Vector3(-1, 0, 0),  // L - Left
+        new THREE.Vector3(0, 0, -1)   // B - Back
+    ];
+    
+    for (let faceIdx = 0; faceIdx < 6; faceIdx++) {
+        const colors = scannedFaces[faceIdx];
+        const normal = faceNormals[faceIdx];
+        applySampledColorsToFace(colors, normal);
+    }
+    
+    // Clear move history
+    moveHistory.length = 0;
+    alert('All faces applied! Move history cleared.');
+}
+
+function applySampledColorsToFace(colors, targetNormal) {
+    // Apply colors to cubies on this face
+    const epsilon = 0.1;
+    const offset = CUBE_SIZE + SPACING;
+    
+    const faceCubies = cubies.filter(c => {
+        const pos = new THREE.Vector3();
+        c.getWorldPosition(pos);
+        if (targetNormal.x !== 0) return Math.abs(pos.x - targetNormal.x * offset) < epsilon;
+        if (targetNormal.y !== 0) return Math.abs(pos.y - targetNormal.y * offset) < epsilon;
+        if (targetNormal.z !== 0) return Math.abs(pos.z - targetNormal.z * offset) < epsilon;
+        return false;
+    });
+    
+    // Sort cubies to match grid order
+    faceCubies.sort((a, b) => {
+        const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+        const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+        
+        if (Math.abs(targetNormal.y) > 0.5) {
+            const dz = posB.z - posA.z;
+            if (Math.abs(dz) > epsilon) return dz;
+            return posA.x - posB.x;
+        }
+        
+        const dy = posB.y - posA.y;
+        if (Math.abs(dy) > epsilon) return dy;
+        
+        if (Math.abs(targetNormal.x) > 0.5) {
+            if (targetNormal.x > 0) return posB.z - posA.z;
+            else return posA.z - posB.z;
+        } else {
+            if (targetNormal.z > 0) return posA.x - posB.x;
+            else return posB.x - posA.x;
+        }
+    });
+    
+    if (faceCubies.length !== 9) {
+        console.warn("Found " + faceCubies.length + " cubies, expected 9.");
+        return;
+    }
+    
+    faceCubies.forEach((cubie, index) => {
+        if (colors[index] !== undefined) {
+            let matIndex = -1;
+            if (targetNormal.x > 0.5) matIndex = 0;
+            if (targetNormal.x < -0.5) matIndex = 1;
+            if (targetNormal.y > 0.5) matIndex = 2;
+            if (targetNormal.y < -0.5) matIndex = 3;
+            if (targetNormal.z > 0.5) matIndex = 4;
+            if (targetNormal.z < -0.5) matIndex = 5;
+            
+            if (matIndex >= 0) {
+                cubie.material[matIndex].color.setHex(colors[index]);
+            }
+        }
+    });
 }
 
 function findNearestColor(r, g, b) {
@@ -605,125 +1043,6 @@ function findNearestColor(r, g, b) {
     });
 
     return nearest;
-}
-
-function applySampledColors(colors) {
-    // Determine which face is currently facing the camera
-    // For simplicity V1: We'll calculate the camera vector and find the most aligned face normal
-    const camDir = new THREE.Vector3();
-    camera.getWorldDirection(camDir);
-    // camDir points FROM camera TO target. A face normal points OUT.
-    // So we want the face normal that is most opposite to camDir (dot product approaches -1)
-
-    // Check 6 directions
-    const checkDirs = [
-        new THREE.Vector3(1, 0, 0),  // Right
-        new THREE.Vector3(-1, 0, 0), // Left
-        new THREE.Vector3(0, 1, 0),  // Top
-        new THREE.Vector3(0, -1, 0), // Bottom
-        new THREE.Vector3(0, 0, 1),  // Front
-        new THREE.Vector3(0, 0, -1)  // Back
-    ];
-
-    let bestDot = Infinity;
-    let targetNormal = null;
-
-    checkDirs.forEach(dir => {
-        const dot = camDir.dot(dir);
-        if (dot < bestDot) {
-            bestDot = dot;
-            targetNormal = dir;
-        }
-    });
-
-    // Apply colors to cubies on this face
-    // We need to map the 3x3 grid (row-major) to the spatial coordinates
-    // This mapping depends on the face.
-    // Standard mapping: Row 0 is Top (High Y), Row 2 is Bottom.
-    // Col 0 is Left, Col 2 is Right.
-
-    // Filter cubies on this face
-    const epsilon = 0.1;
-    const faceCubies = cubies.filter(c => {
-        const pos = new THREE.Vector3();
-        c.getWorldPosition(pos);
-        if (targetNormal.x !== 0) return Math.abs(pos.x - targetNormal.x * 1.02) < epsilon;
-        if (targetNormal.y !== 0) return Math.abs(pos.y - targetNormal.y * 1.02) < epsilon;
-        if (targetNormal.z !== 0) return Math.abs(pos.z - targetNormal.z * 1.02) < epsilon;
-        return false;
-    });
-
-    // Sort valid cubies to match grid order (Top-Left to Bottom-Right relative to view)
-    // This is tricky because "Top-Left" depends on the face orientation relative to camera UP.
-    // SIMPLIFICATION: Using fixed logic assuming standard upright camera.
-    // Left-Right is usually Cross Product of Normal and Up.
-    // Up-Down is usually projected Y or similar.
-
-    // Let's sort based on Y descending (Top->Bottom), then by secondary axis.
-
-    faceCubies.sort((a, b) => {
-        const posA = new THREE.Vector3(); a.getWorldPosition(posA);
-        const posB = new THREE.Vector3(); b.getWorldPosition(posB);
-
-        // Sorting logic varies by face
-        // Top/Bottom faces (Normal Y): Sort logic Z descending (Back->Front) then X (Left->Right)
-        if (Math.abs(targetNormal.y) > 0.5) {
-            const dz = posB.z - posA.z; // Diff Z
-            if (Math.abs(dz) > epsilon) return dz; // Sort Z descending
-            return posA.x - posB.x; // Sort X ascending
-        }
-
-        // Side faces: Sort Y descending (Top->Bottom)
-        const dy = posB.y - posA.y;
-        if (Math.abs(dy) > epsilon) return dy;
-
-        // Then secondary:
-        if (Math.abs(targetNormal.x) > 0.5) {
-            // Right/Left faces: Sort Z descending (Front->Back?? No check coordinate space)
-            // Front (Z+) is +Z. Back is -Z.
-            // When looking at Right Face (X+), Left is Z+ (Front), Right is Z- (Back).
-            // Actually let's assume standard visual:
-            // Right Face: Left of screen is Front (Z+), Right of screen is Back (Z-) -> Sort Z descending
-            // Left Face: Left of screen is Back (Z-), Right of screen is Front (Z+) -> Sort Z ascending
-
-            if (targetNormal.x > 0) return posB.z - posA.z; // Right Face
-            else return posA.z - posB.z; // Left Face
-        } else {
-            // Front/Back faces (Z): Sort X ascending (Left->Right)
-            // Front (Z+): Left is X-, Right is X+ -> Sort X ascending
-            // Back (Z-): Left is X+, Right is X- (viewed from back) -> Sort X descending
-            if (targetNormal.z > 0) return posA.x - posB.x;
-            else return posB.x - posA.x;
-        }
-    });
-
-    // Apply colors
-    if (faceCubies.length !== 9) {
-        console.warn("Found " + faceCubies.length + " cubies, expected 9. Check alignment.");
-        return;
-    }
-
-    faceCubies.forEach((cubie, index) => {
-        if (colors[index] !== undefined) {
-            // We need to find the material index corresponding to the face normal
-            // Material indices: 0:Right, 1:Left, 2:Top, 3:Bottom, 4:Front, 5:Back
-            let matIndex = -1;
-            if (targetNormal.x > 0.5) matIndex = 0;
-            if (targetNormal.x < -0.5) matIndex = 1;
-            if (targetNormal.y > 0.5) matIndex = 2;
-            if (targetNormal.y < -0.5) matIndex = 3;
-            if (targetNormal.z > 0.5) matIndex = 4;
-            if (targetNormal.z < -0.5) matIndex = 5;
-
-            if (matIndex >= 0) {
-                cubie.material[matIndex].color.setHex(colors[index]);
-            }
-        }
-    });
-
-    // IMPORTANT: Invalidate History because this is a "cheat"
-    moveHistory.length = 0;
-    alert("Face colors applied! Move history cleared.");
 }
 
 // --- Scanner End ---

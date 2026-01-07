@@ -258,3 +258,74 @@ button.secondary {
 button.secondary:hover {
     background: rgba(255, 255, 255, 0.1);
 }
+
+/* Correction Grid */
+.correction-grid {
+    margin-top: 1.5rem;
+}
+
+.correction-grid h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-color);
+}
+
+.grid-3x3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 4px;
+    width: 180px;
+    height: 180px;
+    margin: 0 auto 1rem;
+    border: 2px solid var(--glass-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.grid-cell {
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.grid-cell:hover {
+    border-color: white;
+    transform: scale(1.05);
+}
+
+.grid-cell.selected {
+    border-color: yellow;
+    box-shadow: 0 0 10px rgba(255, 255, 0, 0.5);
+}
+
+.color-picker {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+.color-option {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid var(--glass-border);
+    transition: all 0.2s ease;
+}
+
+.color-option:hover {
+    transform: scale(1.1);
+    border-color: white;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.face-instruction {
+    font-size: 0.9rem;
+    color: #fbbf24;
+    margin-bottom: 1rem;
+    font-weight: 600;
+}

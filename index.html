@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rubik's Cube 3D</title>
     <link rel="stylesheet" href="style.css">
+    <!-- OpenCV.js via CDN -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV.js loaded')" onerror="console.error('Failed to load OpenCV.js')"></script>
     <!-- Import map for Three.js -->
     <script type="importmap">
         {
@@ -26,6 +28,8 @@
         </div>
         <div class="button-group">
             <button id="btn-scan">Scan Cube</button>
+            <button id="btn-scramble">Scramble</button>
+            <button id="btn-reset">Reset</button>
         </div>
     </div>
     <div id="canvas-container"></div>
@@ -33,9 +37,12 @@
     <!-- Scanner Modal -->
     <div id="scanner-modal" class="hidden">
         <div class="scanner-content">
-            <h2>Scan Cube Face</h2>
+            <h2>Scan Cube Face: <span id="current-face-name">U (Up/White)</span></h2>
+            <p class="face-instruction" id="face-instruction">Position the WHITE (Up) face toward the camera</p>
+            
             <div class="video-wrapper">
                 <video id="scanner-video" autoplay playsinline></video>
+                <canvas id="scanner-canvas" style="display:none;"></canvas>
                 <div class="scanner-grid">
                     <div></div>
                     <div></div>
@@ -48,12 +55,30 @@
                     <div></div>
                 </div>
             </div>
+            
+            <!-- Manual Correction Grid -->
+            <div id="correction-grid" class="correction-grid hidden">
+                <h3>Adjust Colors (Click to Change)</h3>
+                <div class="grid-3x3" id="color-grid">
+                    <!-- 9 clickable color cells will be generated here -->
+                </div>
+                <div class="color-picker" id="color-picker">
+                    <div class="color-option" data-color="0xb90000" style="background-color: #b90000;" title="Red"></div>
+                    <div class="color-option" data-color="0xff5900" style="background-color: #ff5900;" title="Orange"></div>
+                    <div class="color-option" data-color="0xffffff" style="background-color: #ffffff;" title="White"></div>
+                    <div class="color-option" data-color="0xffd500" style="background-color: #ffd500;" title="Yellow"></div>
+                    <div class="color-option" data-color="0x009b48" style="background-color: #009b48;" title="Green"></div>
+                    <div class="color-option" data-color="0x0045ad" style="background-color: #0045ad;" title="Blue"></div>
+                </div>
+            </div>
+            
             <div class="scanner-controls">
                 <button id="btn-capture">Capture</button>
-                <button id="btn-close-scanner" class="secondary">Finish</button>
+                <button id="btn-confirm-face" class="hidden">Confirm Face</button>
+                <button id="btn-close-scanner" class="secondary">Cancel</button>
             </div>
-            <p id="scanner-status" class="scanner-status">Scanned: 0/6</p>
-            <p class="scanner-tip">Align a face with grid, then rotate physical cube AND 3D cube to next face.</p>
+            <p id="scanner-status" class="scanner-status">Faces Scanned: 0/6</p>
+            <p class="scanner-tip">Align the face with the grid overlay, then click Capture</p>
         </div>
     </div>
 
