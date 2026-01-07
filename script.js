@@ -547,7 +547,7 @@ window.addEventListener('load', () => {
             console.log('OpenCV.js is ready');
         };
     } else {
-        console.warn('OpenCV.js not loaded, will retry on scanner open');
+        console.warn('OpenCV.js not loaded yet. Scanner will use fallback mode with basic color sampling. Face detection and perspective correction will not be available.');
     }
 });
 
@@ -902,11 +902,24 @@ function autoOrient(colors) {
     const currentFace = FACE_ORDER[currentFaceIndex];
     const expectedCenter = getExpectedCenterColor(currentFace);
     
+    // Pre-calculate all 4 rotations
     const rotations = [
-        colors,
-        rotateColors90(colors),
-        rotateColors90(rotateColors90(colors)),
-        rotateColors90(rotateColors90(rotateColors90(colors)))
+        colors, // 0 degrees
+        [ // 90 degrees clockwise
+            colors[6], colors[3], colors[0],
+            colors[7], colors[4], colors[1],
+            colors[8], colors[5], colors[2]
+        ],
+        [ // 180 degrees
+            colors[8], colors[7], colors[6],
+            colors[5], colors[4], colors[3],
+            colors[2], colors[1], colors[0]
+        ],
+        [ // 270 degrees clockwise
+            colors[2], colors[5], colors[8],
+            colors[1], colors[4], colors[7],
+            colors[0], colors[3], colors[6]
+        ]
     ];
     
     // Find rotation where center matches expected
@@ -930,15 +943,6 @@ function getExpectedCenterColor(face) {
         'B': 'B'  // Back = Blue
     };
     return centerColors[face] || 'W';
-}
-
-function rotateColors90(colors) {
-    // Rotate 3x3 grid 90 degrees clockwise
-    return [
-        colors[6], colors[3], colors[0],
-        colors[7], colors[4], colors[1],
-        colors[8], colors[5], colors[2]
-    ];
 }
 
 function showCorrectionModal(colors) {
@@ -1101,11 +1105,25 @@ function generateKociembaString() {
     return str;
 }
 
-function copyKociembaString() {
+async function copyKociembaString() {
     const input = document.getElementById('export-string');
-    input.select();
-    document.execCommand('copy');
-    alert('Copied to clipboard!');
+    const text = input.value;
+    
+    try {
+        // Try modern Clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            alert('Copied to clipboard!');
+        } else {
+            // Fallback for older browsers
+            input.select();
+            document.execCommand('copy');
+            alert('Copied to clipboard!');
+        }
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard. Please copy manually.');
+    }
 }
 
 function applyToCube() {
