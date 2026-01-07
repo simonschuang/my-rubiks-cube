@@ -524,3 +524,211 @@ function animate() {
 
 // Start
 init();
+
+// --- Scanner Start ---
+
+let scannerStream = null;
+const scannerModal = document.getElementById('scanner-modal');
+const scannerVideo = document.getElementById('scanner-video');
+
+document.getElementById('btn-scan').addEventListener('click', openScanner);
+document.getElementById('btn-close-scanner').addEventListener('click', closeScanner);
+document.getElementById('btn-capture').addEventListener('click', captureFace);
+
+async function openScanner() {
+    scannerModal.classList.remove('hidden');
+    try {
+        scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        scannerVideo.srcObject = scannerStream;
+    } catch (err) {
+        console.error("Camera access denied:", err);
+        alert("Camera access is required to scan the cube.");
+        closeScanner();
+    }
+}
+
+function closeScanner() {
+    scannerModal.classList.add('hidden');
+    if (scannerStream) {
+        scannerStream.getTracks().forEach(track => track.stop());
+        scannerStream = null;
+    }
+}
+
+function captureFace() {
+    const canvas = document.createElement('canvas');
+    canvas.width = scannerVideo.videoWidth;
+    canvas.height = scannerVideo.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(scannerVideo, 0, 0, canvas.width, canvas.height);
+
+    const cellWidth = canvas.width / 3;
+    const cellHeight = canvas.height / 3;
+
+    // Sample 9 points
+    const capturedColors = [];
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            // Sample center of cell
+            const x = Math.floor(col * cellWidth + cellWidth / 2);
+            const y = Math.floor(row * cellHeight + cellHeight / 2);
+            const pixel = ctx.getImageData(x, y, 1, 1).data;
+
+            // Map to nearest standard color
+            const matchedColor = findNearestColor(pixel[0], pixel[1], pixel[2]);
+            capturedColors.push(matchedColor);
+        }
+    }
+
+    applySampledColors(capturedColors);
+    closeScanner();
+}
+
+function findNearestColor(r, g, b) {
+    const standardColors = [
+        { hex: 0xb90000, r: 185, g: 0, b: 0 },       // Red
+        { hex: 0xff5900, r: 255, g: 89, b: 0 },      // Orange
+        { hex: 0xffffff, r: 255, g: 255, b: 255 },   // White
+        { hex: 0xffd500, r: 255, g: 213, b: 0 },     // Yellow
+        { hex: 0x009b48, r: 0, g: 155, b: 72 },      // Green
+        { hex: 0x0045ad, r: 0, g: 69, b: 173 }       // Blue
+    ];
+
+    let minDist = Infinity;
+    let nearest = standardColors[0].hex;
+
+    standardColors.forEach(c => {
+        const d = Math.sqrt(
+            Math.pow(r - c.r, 2) +
+            Math.pow(g - c.g, 2) +
+            Math.pow(b - c.b, 2)
+        );
+        if (d < minDist) {
+            minDist = d;
+            nearest = c.hex;
+        }
+    });
+
+    return nearest;
+}
+
+function applySampledColors(colors) {
+    // Determine which face is currently facing the camera
+    // For simplicity V1: We'll calculate the camera vector and find the most aligned face normal
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    // camDir points FROM camera TO target. A face normal points OUT.
+    // So we want the face normal that is most opposite to camDir (dot product approaches -1)
+
+    // Check 6 directions
+    const checkDirs = [
+        new THREE.Vector3(1, 0, 0),  // Right
+        new THREE.Vector3(-1, 0, 0), // Left
+        new THREE.Vector3(0, 1, 0),  // Top
+        new THREE.Vector3(0, -1, 0), // Bottom
+        new THREE.Vector3(0, 0, 1),  // Front
+        new THREE.Vector3(0, 0, -1)  // Back
+    ];
+
+    let bestDot = Infinity;
+    let targetNormal = null;
+
+    checkDirs.forEach(dir => {
+        const dot = camDir.dot(dir);
+        if (dot < bestDot) {
+            bestDot = dot;
+            targetNormal = dir;
+        }
+    });
+
+    // Apply colors to cubies on this face
+    // We need to map the 3x3 grid (row-major) to the spatial coordinates
+    // This mapping depends on the face.
+    // Standard mapping: Row 0 is Top (High Y), Row 2 is Bottom.
+    // Col 0 is Left, Col 2 is Right.
+
+    // Filter cubies on this face
+    const epsilon = 0.1;
+    const faceCubies = cubies.filter(c => {
+        const pos = new THREE.Vector3();
+        c.getWorldPosition(pos);
+        if (targetNormal.x !== 0) return Math.abs(pos.x - targetNormal.x * 1.02) < epsilon;
+        if (targetNormal.y !== 0) return Math.abs(pos.y - targetNormal.y * 1.02) < epsilon;
+        if (targetNormal.z !== 0) return Math.abs(pos.z - targetNormal.z * 1.02) < epsilon;
+        return false;
+    });
+
+    // Sort valid cubies to match grid order (Top-Left to Bottom-Right relative to view)
+    // This is tricky because "Top-Left" depends on the face orientation relative to camera UP.
+    // SIMPLIFICATION: Using fixed logic assuming standard upright camera.
+    // Left-Right is usually Cross Product of Normal and Up.
+    // Up-Down is usually projected Y or similar.
+
+    // Let's sort based on Y descending (Top->Bottom), then by secondary axis.
+
+    faceCubies.sort((a, b) => {
+        const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+        const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+
+        // Sorting logic varies by face
+        // Top/Bottom faces (Normal Y): Sort logic Z descending (Back->Front) then X (Left->Right)
+        if (Math.abs(targetNormal.y) > 0.5) {
+            const dz = posB.z - posA.z; // Diff Z
+            if (Math.abs(dz) > epsilon) return dz; // Sort Z descending
+            return posA.x - posB.x; // Sort X ascending
+        }
+
+        // Side faces: Sort Y descending (Top->Bottom)
+        const dy = posB.y - posA.y;
+        if (Math.abs(dy) > epsilon) return dy;
+
+        // Then secondary:
+        if (Math.abs(targetNormal.x) > 0.5) {
+            // Right/Left faces: Sort Z descending (Front->Back?? No check coordinate space)
+            // Front (Z+) is +Z. Back is -Z.
+            // When looking at Right Face (X+), Left is Z+ (Front), Right is Z- (Back).
+            // Actually let's assume standard visual:
+            // Right Face: Left of screen is Front (Z+), Right of screen is Back (Z-) -> Sort Z descending
+            // Left Face: Left of screen is Back (Z-), Right of screen is Front (Z+) -> Sort Z ascending
+
+            if (targetNormal.x > 0) return posB.z - posA.z; // Right Face
+            else return posA.z - posB.z; // Left Face
+        } else {
+            // Front/Back faces (Z): Sort X ascending (Left->Right)
+            // Front (Z+): Left is X-, Right is X+ -> Sort X ascending
+            // Back (Z-): Left is X+, Right is X- (viewed from back) -> Sort X descending
+            if (targetNormal.z > 0) return posA.x - posB.x;
+            else return posB.x - posA.x;
+        }
+    });
+
+    // Apply colors
+    if (faceCubies.length !== 9) {
+        console.warn("Found " + faceCubies.length + " cubies, expected 9. Check alignment.");
+        return;
+    }
+
+    faceCubies.forEach((cubie, index) => {
+        if (colors[index] !== undefined) {
+            // We need to find the material index corresponding to the face normal
+            // Material indices: 0:Right, 1:Left, 2:Top, 3:Bottom, 4:Front, 5:Back
+            let matIndex = -1;
+            if (targetNormal.x > 0.5) matIndex = 0;
+            if (targetNormal.x < -0.5) matIndex = 1;
+            if (targetNormal.y > 0.5) matIndex = 2;
+            if (targetNormal.y < -0.5) matIndex = 3;
+            if (targetNormal.z > 0.5) matIndex = 4;
+            if (targetNormal.z < -0.5) matIndex = 5;
+
+            if (matIndex >= 0) {
+                cubie.material[matIndex].color.setHex(colors[index]);
+            }
+        }
+    });
+
+    // IMPORTANT: Invalidate History because this is a "cheat"
+    moveHistory.length = 0;
+    alert("Face colors applied! Move history cleared.");
+}
+
+// --- Scanner End ---
