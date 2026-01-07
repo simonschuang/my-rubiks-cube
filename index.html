@@ -15,6 +15,8 @@
             }
         }
     </script>
+    <!-- OpenCV.js via CDN (WASM build) -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" type="text/javascript"></script>
 </head>
 
 <body>
@@ -33,9 +35,11 @@
     <!-- Scanner Modal -->
     <div id="scanner-modal" class="hidden">
         <div class="scanner-content">
-            <h2>Scan Cube Face</h2>
+            <h2 id="scanner-title">Scan Cube Face</h2>
+            <p id="scanner-face-label" class="scanner-face-label">Current Face: <strong id="scanner-current-face">Up (U)</strong></p>
             <div class="video-wrapper">
                 <video id="scanner-video" autoplay playsinline></video>
+                <canvas id="scanner-canvas" class="hidden"></canvas>
                 <div class="scanner-grid">
                     <div></div>
                     <div></div>
@@ -49,11 +53,49 @@
                 </div>
             </div>
             <div class="scanner-controls">
-                <button id="btn-capture">Capture</button>
-                <button id="btn-close-scanner" class="secondary">Finish</button>
+                <button id="btn-capture">Capture Face</button>
+                <button id="btn-close-scanner" class="secondary">Cancel</button>
             </div>
-            <p id="scanner-status" class="scanner-status">Scanned: 0/6</p>
-            <p class="scanner-tip">Align a face with grid, then rotate physical cube AND 3D cube to next face.</p>
+            <p id="scanner-status" class="scanner-status">Scanned: 0/6 faces</p>
+            <p class="scanner-tip">Align the cube face within the grid and tap Capture</p>
+        </div>
+    </div>
+
+    <!-- Manual Correction Modal -->
+    <div id="correction-modal" class="hidden">
+        <div class="correction-content">
+            <h2>Correct Colors</h2>
+            <p class="correction-face-label">Face: <strong id="correction-face-name">Up (U)</strong></p>
+            <div class="correction-grid" id="correction-grid">
+                <!-- 3x3 grid of color pickers generated dynamically -->
+            </div>
+            <div class="color-palette" id="color-palette">
+                <!-- Color swatches for selection -->
+            </div>
+            <div class="correction-controls">
+                <button id="btn-confirm-correction">Confirm</button>
+                <button id="btn-recapture" class="secondary">Recapture</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Modal -->
+    <div id="export-modal" class="hidden">
+        <div class="export-content">
+            <h2>Scan Complete!</h2>
+            <div class="export-section">
+                <h3>Thumbnail Preview</h3>
+                <canvas id="export-thumbnail" width="300" height="400"></canvas>
+            </div>
+            <div class="export-section">
+                <h3>Kociemba String</h3>
+                <input type="text" id="export-string" readonly />
+                <button id="btn-copy-string" class="small">Copy</button>
+            </div>
+            <div class="export-controls">
+                <button id="btn-apply-to-cube">Apply to 3D Cube</button>
+                <button id="btn-close-export" class="secondary">Close</button>
+            </div>
         </div>
     </div>
 

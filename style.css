@@ -168,7 +168,7 @@ button:active {
     display: none !important;
 }
 
-#scanner-modal {
+#scanner-modal, #correction-modal, #export-modal {
     position: fixed;
     top: 0;
     left: 0;
@@ -180,34 +180,48 @@ button:active {
     display: flex;
     justify-content: center;
     align-items: center;
+    overflow-y: auto;
 }
 
-.scanner-content {
+.scanner-content, .correction-content, .export-content {
     background: #1e293b;
     padding: 2rem;
     border-radius: 16px;
     border: 1px solid var(--glass-border);
     text-align: center;
     max-width: 90%;
-    width: 400px;
+    width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 
-.scanner-content h2 {
+.scanner-content h2, .correction-content h2, .export-content h2 {
     margin-bottom: 1rem;
     color: var(--text-color);
 }
 
+.scanner-face-label, .correction-face-label {
+    font-size: 1.1rem;
+    color: #94a3b8;
+    margin-bottom: 1rem;
+}
+
+.scanner-face-label strong, .correction-face-label strong {
+    color: var(--primary-color);
+    font-size: 1.3rem;
+}
+
 .video-wrapper {
     position: relative;
-    width: 300px;
-    height: 300px;
+    width: 400px;
+    height: 400px;
     margin: 0 auto 1.5rem;
     border-radius: 8px;
     overflow: hidden;
     background: #000;
 }
 
-#scanner-video {
+#scanner-video, #scanner-canvas {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -223,23 +237,26 @@ button:active {
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
     box-sizing: border-box;
-    border: 2px solid rgba(255, 255, 255, 0.5);
+    border: 2px solid rgba(56, 189, 248, 0.7);
+    pointer-events: none;
 }
 
 .scanner-grid div {
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: 1px solid rgba(56, 189, 248, 0.4);
 }
 
-.scanner-controls {
+.scanner-controls, .correction-controls, .export-controls {
     display: flex;
     gap: 1rem;
     justify-content: center;
+    flex-wrap: wrap;
 }
 
 .scanner-tip {
     margin-top: 1rem;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     color: #94a3b8;
+    line-height: 1.5;
 }
 
 .scanner-status {
@@ -247,7 +264,100 @@ button:active {
     font-size: 1.1rem;
     font-weight: bold;
     color: #4ade80;
-    /* Green */
+}
+
+/* Correction Modal */
+.correction-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 300px;
+    height: 300px;
+    margin: 1rem auto;
+    padding: 1rem;
+    background: #0f172a;
+    border-radius: 8px;
+}
+
+.correction-cell {
+    width: 100%;
+    height: 100%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.correction-cell:hover {
+    border-color: var(--primary-color);
+    transform: scale(1.05);
+}
+
+.correction-cell.selected {
+    border-color: #fbbf24;
+    border-width: 3px;
+}
+
+.color-palette {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin: 1.5rem 0;
+    flex-wrap: wrap;
+}
+
+.color-swatch {
+    width: 50px;
+    height: 50px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.color-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+.color-swatch.active {
+    border-color: #fbbf24;
+    transform: scale(1.15);
+}
+
+/* Export Modal */
+.export-section {
+    margin: 1.5rem 0;
+}
+
+.export-section h3 {
+    color: #94a3b8;
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+#export-thumbnail {
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    max-width: 100%;
+    height: auto;
+}
+
+#export-string {
+    width: 100%;
+    padding: 0.75rem;
+    background: #0f172a;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-color);
+    font-family: monospace;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+button.small {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
 }
 
 button.secondary {
@@ -257,4 +367,34 @@ button.secondary {
 
 button.secondary:hover {
     background: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile adjustments for modals */
+@media (max-width: 768px) {
+    .scanner-content, .correction-content, .export-content {
+        width: 95%;
+        padding: 1.5rem;
+    }
+
+    .video-wrapper {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1;
+    }
+
+    .correction-grid {
+        width: 100%;
+        max-width: 300px;
+        height: auto;
+        aspect-ratio: 1;
+    }
+
+    .color-palette {
+        gap: 0.5rem;
+    }
+
+    .color-swatch {
+        width: 40px;
+        height: 40px;
+    }
 }
