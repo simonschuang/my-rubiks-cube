@@ -7,6 +7,7 @@ let cubeGroup;
 const cubies = []; // Array to hold all 27 mesh objects
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+const moveHistory = []; // Track moves for undo functionality
 
 // Configuration
 const CUBE_SIZE = 1; // Size of individual cubie
@@ -520,26 +521,135 @@ function animate() {
 // Start
 init();
 
-// --- Scanner Start ---
+// --- OpenCV.js Scanner Implementation ---
 
+// Scanner state
 let scannerStream = null;
+let opencvReady = false;
+const FACE_ORDER = ['U', 'R', 'F', 'D', 'L', 'B']; // Up, Right, Front, Down, Left, Back
+const FACE_NAMES = {
+    'U': 'Up (White)',
+    'R': 'Right (Red)',
+    'F': 'Front (Green)',
+    'D': 'Down (Yellow)',
+    'L': 'Left (Orange)',
+    'B': 'Back (Blue)'
+};
+let currentFaceIndex = 0;
+let scannedFaces = {}; // Store colors for each face { 'U': [colors...], 'R': [...], ... }
+let capturedImageData = null; // For manual correction
+
+// Wait for OpenCV.js to load
+window.addEventListener('load', () => {
+    if (typeof cv !== 'undefined') {
+        cv.onRuntimeInitialized = () => {
+            opencvReady = true;
+            console.log('OpenCV.js is ready');
+        };
+    } else {
+        console.warn('OpenCV.js not loaded yet. Scanner will use fallback mode with basic color sampling. Face detection and perspective correction will not be available.');
+    }
+});
+
+// Color definitions
+const STANDARD_COLORS = [
+    { name: 'R', hex: 0xb90000, r: 185, g: 0, b: 0 },       // Red
+    { name: 'O', hex: 0xff5900, r: 255, g: 89, b: 0 },      // Orange
+    { name: 'W', hex: 0xffffff, r: 255, g: 255, b: 255 },   // White
+    { name: 'Y', hex: 0xffd500, r: 255, g: 213, b: 0 },     // Yellow
+    { name: 'G', hex: 0x009b48, r: 0, g: 155, b: 72 },      // Green
+    { name: 'B', hex: 0x0045ad, r: 0, g: 69, b: 173 }       // Blue
+];
+
+// UI Elements
 const scannerModal = document.getElementById('scanner-modal');
 const scannerVideo = document.getElementById('scanner-video');
+const scannerCanvas = document.getElementById('scanner-canvas');
+const correctionModal = document.getElementById('correction-modal');
+const correctionGrid = document.getElementById('correction-grid');
+const colorPalette = document.getElementById('color-palette');
+const exportModal = document.getElementById('export-modal');
 
+// Event listeners
 document.getElementById('btn-scan').addEventListener('click', openScanner);
-document.getElementById('btn-close-scanner').addEventListener('click', closeScanner);
+document.getElementById('btn-close-scanner').addEventListener('click', cancelScanner);
 document.getElementById('btn-capture').addEventListener('click', captureFace);
+document.getElementById('btn-confirm-correction').addEventListener('click', confirmCorrection);
+document.getElementById('btn-recapture').addEventListener('click', recaptureFace);
+document.getElementById('btn-apply-to-cube').addEventListener('click', applyToCube);
+document.getElementById('btn-close-export').addEventListener('click', closeExport);
+document.getElementById('btn-copy-string').addEventListener('click', copyKociembaString);
+
+// Color adjustment controls
+let brightness = 100;
+let contrast = 100;
+
+document.getElementById('brightness-slider').addEventListener('input', (e) => {
+    brightness = parseInt(e.target.value);
+    document.getElementById('brightness-value').textContent = brightness;
+    applyVideoFilters();
+});
+
+document.getElementById('contrast-slider').addEventListener('input', (e) => {
+    contrast = parseInt(e.target.value);
+    document.getElementById('contrast-value').textContent = contrast;
+    applyVideoFilters();
+});
+
+function applyVideoFilters() {
+    if (scannerVideo) {
+        scannerVideo.style.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    }
+}
 
 async function openScanner() {
+    // Wait for OpenCV if not ready
+    if (!opencvReady && typeof cv !== 'undefined') {
+        await new Promise(resolve => {
+            cv.onRuntimeInitialized = () => {
+                opencvReady = true;
+                resolve();
+            };
+        });
+    }
+
+    // Reset scanner state
+    currentFaceIndex = 0;
+    scannedFaces = {};
+    updateScannerUI();
+    
+    // Reset color adjustments
+    brightness = 100;
+    contrast = 100;
+    document.getElementById('brightness-slider').value = 100;
+    document.getElementById('contrast-slider').value = 100;
+    document.getElementById('brightness-value').textContent = '100';
+    document.getElementById('contrast-value').textContent = '100';
+
     scannerModal.classList.remove('hidden');
     try {
-        scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        scannerStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+                facingMode: 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 1280 }
+            } 
+        });
         scannerVideo.srcObject = scannerStream;
     } catch (err) {
         console.error("Camera access denied:", err);
         alert("Camera access is required to scan the cube.");
         closeScanner();
     }
+}
+
+function cancelScanner() {
+    if (Object.keys(scannedFaces).length > 0) {
+        if (!confirm('Are you sure you want to cancel? You will lose scanned data.')) {
+            return;
+        }
+    }
+    closeScanner();
 }
 
 function closeScanner() {
@@ -550,49 +660,260 @@ function closeScanner() {
     }
 }
 
-function captureFace() {
+function updateScannerUI() {
+    const currentFace = FACE_ORDER[currentFaceIndex];
+    document.getElementById('scanner-current-face').textContent = FACE_NAMES[currentFace];
+    document.getElementById('scanner-status').textContent = `Scanned: ${Object.keys(scannedFaces).length}/6 faces`;
+}
+
+async function captureFace() {
+    if (!scannerVideo.videoWidth) {
+        alert('Video not ready, please wait...');
+        return;
+    }
+
+    // Create canvas for capture
     const canvas = document.createElement('canvas');
     canvas.width = scannerVideo.videoWidth;
     canvas.height = scannerVideo.videoHeight;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(scannerVideo, 0, 0, canvas.width, canvas.height);
+    
+    // Apply brightness and contrast adjustments to captured image
+    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    ctx.drawImage(scannerVideo, 0, 0);
+    ctx.filter = 'none'; // Reset filter
 
-    const cellWidth = canvas.width / 3;
-    const cellHeight = canvas.height / 3;
-
-    // Sample 9 points
-    const capturedColors = [];
-    for (let row = 0; row < 3; row++) {
-        for (let col = 0; col < 3; col++) {
-            // Sample center of cell
-            const x = Math.floor(col * cellWidth + cellWidth / 2);
-            const y = Math.floor(row * cellHeight + cellHeight / 2);
-            const pixel = ctx.getImageData(x, y, 1, 1).data;
-
-            // Map to nearest standard color
-            const matchedColor = findNearestColor(pixel[0], pixel[1], pixel[2]);
-            capturedColors.push(matchedColor);
-        }
+    // Process with OpenCV
+    let colors;
+    if (opencvReady && typeof cv !== 'undefined') {
+        colors = await processImageWithOpenCV(canvas);
+    } else {
+        // Fallback: simple grid sampling
+        colors = sampleColorsSimple(canvas);
     }
 
-    applySampledColors(capturedColors);
-    closeScanner();
+    // Store the image for manual correction
+    capturedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    // Show correction modal
+    showCorrectionModal(colors);
+}
+
+function processImageWithOpenCV(canvas) {
+    try {
+        const src = cv.imread(canvas);
+        const gray = new cv.Mat();
+        const blurred = new cv.Mat();
+        const edges = new cv.Mat();
+        
+        // Convert to grayscale and blur
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+        
+        // Detect edges
+        cv.Canny(blurred, edges, 50, 150);
+        
+        // Find contours
+        const contours = new cv.MatVector();
+        const hierarchy = new cv.Mat();
+        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        
+        // Find largest square-like contour
+        let largestContour = null;
+        let maxArea = 0;
+        
+        for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            const area = cv.contourArea(contour);
+            const perimeter = cv.arcLength(contour, true);
+            const approx = new cv.Mat();
+            cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
+            
+            // Look for roughly square shapes (4 corners)
+            if (approx.rows === 4 && area > maxArea && area > canvas.width * canvas.height * 0.1) {
+                maxArea = area;
+                if (largestContour) largestContour.delete();
+                largestContour = contour.clone();
+            }
+            approx.delete();
+        }
+        
+        let colors;
+        if (largestContour && maxArea > 0) {
+            // Perspective correction
+            colors = extractColorsWithPerspective(src, largestContour, canvas);
+        } else {
+            // Fallback to center sampling
+            colors = extractColorsFromCenter(src, canvas);
+        }
+        
+        // Cleanup
+        src.delete();
+        gray.delete();
+        blurred.delete();
+        edges.delete();
+        contours.delete();
+        hierarchy.delete();
+        if (largestContour) largestContour.delete();
+        
+        return colors;
+    } catch (err) {
+        console.error('OpenCV processing error:', err);
+        return sampleColorsSimple(canvas);
+    }
+}
+
+function extractColorsWithPerspective(src, contour, canvas) {
+    try {
+        // Get the 4 corners
+        const rect = cv.minAreaRect(contour);
+        const vertices = cv.RotatedRect.points(rect);
+        
+        // Sort vertices to be in consistent order
+        const sorted = sortVertices(vertices);
+        
+        // Define destination points for 300x300 square
+        const dsize = new cv.Size(300, 300);
+        const srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            sorted[0].x, sorted[0].y,
+            sorted[1].x, sorted[1].y,
+            sorted[2].x, sorted[2].y,
+            sorted[3].x, sorted[3].y
+        ]);
+        const dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            0, 0,
+            299, 0,
+            299, 299,
+            0, 299
+        ]);
+        
+        // Get perspective transform
+        const M = cv.getPerspectiveTransform(srcTri, dstTri);
+        const warped = new cv.Mat();
+        cv.warpPerspective(src, warped, M, dsize);
+        
+        // Sample colors from the warped image
+        const colors = sampleColorsFromMat(warped);
+        
+        // Auto-orient based on center sticker
+        const oriented = autoOrient(colors);
+        
+        // Cleanup
+        srcTri.delete();
+        dstTri.delete();
+        M.delete();
+        warped.delete();
+        
+        return oriented;
+    } catch (err) {
+        console.error('Perspective correction error:', err);
+        return extractColorsFromCenter(src, canvas);
+    }
+}
+
+function sortVertices(vertices) {
+    // Sort by y first, then x
+    const sorted = vertices.sort((a, b) => a.y - b.y);
+    const top = sorted.slice(0, 2).sort((a, b) => a.x - b.x);
+    const bottom = sorted.slice(2, 4).sort((a, b) => a.x - b.x);
+    return [top[0], top[1], bottom[1], bottom[0]]; // TL, TR, BR, BL
+}
+
+function extractColorsFromCenter(src, canvas) {
+    // Sample from center 60% of image
+    const centerSize = Math.min(canvas.width, canvas.height) * 0.6;
+    const x0 = (canvas.width - centerSize) / 2;
+    const y0 = (canvas.height - centerSize) / 2;
+    
+    const colors = [];
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = Math.floor(x0 + (col + 0.5) * centerSize / 3);
+            const y = Math.floor(y0 + (row + 0.5) * centerSize / 3);
+            
+            // Sample 5x5 area and average
+            const pixel = sampleAreaFromMat(src, x, y, 5);
+            const color = findNearestColor(pixel.r, pixel.g, pixel.b);
+            colors.push(color);
+        }
+    }
+    
+    return autoOrient(colors);
+}
+
+function sampleColorsFromMat(mat) {
+    const colors = [];
+    const size = mat.cols / 3;
+    
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = Math.floor((col + 0.5) * size);
+            const y = Math.floor((row + 0.5) * size);
+            const pixel = sampleAreaFromMat(mat, x, y, 10);
+            const color = findNearestColor(pixel.r, pixel.g, pixel.b);
+            colors.push(color);
+        }
+    }
+    
+    return colors;
+}
+
+function sampleAreaFromMat(mat, cx, cy, areaSize) {
+    let r = 0, g = 0, b = 0, count = 0;
+    const half = Math.floor(areaSize / 2);
+    
+    for (let dy = -half; dy <= half; dy++) {
+        for (let dx = -half; dx <= half; dx++) {
+            const x = Math.max(0, Math.min(mat.cols - 1, cx + dx));
+            const y = Math.max(0, Math.min(mat.rows - 1, cy + dy));
+            const pixel = mat.ucharPtr(y, x);
+            r += pixel[0];
+            g += pixel[1];
+            b += pixel[2];
+            count++;
+        }
+    }
+    
+    return { r: r / count, g: g / count, b: b / count };
+}
+
+function sampleColorsSimple(canvas) {
+    const ctx = canvas.getContext('2d');
+    const centerSize = Math.min(canvas.width, canvas.height) * 0.6;
+    const x0 = (canvas.width - centerSize) / 2;
+    const y0 = (canvas.height - centerSize) / 2;
+    
+    const colors = [];
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 3; col++) {
+            const x = Math.floor(x0 + (col + 0.5) * centerSize / 3);
+            const y = Math.floor(y0 + (row + 0.5) * centerSize / 3);
+            
+            // Sample 5x5 area and average
+            let r = 0, g = 0, b = 0, count = 0;
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const data = ctx.getImageData(x + dx, y + dy, 1, 1).data;
+                    r += data[0];
+                    g += data[1];
+                    b += data[2];
+                    count++;
+                }
+            }
+            
+            const color = findNearestColor(r / count, g / count, b / count);
+            colors.push(color);
+        }
+    }
+    
+    return autoOrient(colors);
 }
 
 function findNearestColor(r, g, b) {
-    const standardColors = [
-        { hex: 0xb90000, r: 185, g: 0, b: 0 },       // Red
-        { hex: 0xff5900, r: 255, g: 89, b: 0 },      // Orange
-        { hex: 0xffffff, r: 255, g: 255, b: 255 },   // White
-        { hex: 0xffd500, r: 255, g: 213, b: 0 },     // Yellow
-        { hex: 0x009b48, r: 0, g: 155, b: 72 },      // Green
-        { hex: 0x0045ad, r: 0, g: 69, b: 173 }       // Blue
-    ];
-
     let minDist = Infinity;
-    let nearest = standardColors[0].hex;
-
-    standardColors.forEach(c => {
+    let nearest = STANDARD_COLORS[0];
+    
+    STANDARD_COLORS.forEach(c => {
         const d = Math.sqrt(
             Math.pow(r - c.r, 2) +
             Math.pow(g - c.g, 2) +
@@ -600,130 +921,413 @@ function findNearestColor(r, g, b) {
         );
         if (d < minDist) {
             minDist = d;
-            nearest = c.hex;
+            nearest = c;
         }
     });
-
+    
     return nearest;
 }
 
-function applySampledColors(colors) {
-    // Determine which face is currently facing the camera
-    // For simplicity V1: We'll calculate the camera vector and find the most aligned face normal
-    const camDir = new THREE.Vector3();
-    camera.getWorldDirection(camDir);
-    // camDir points FROM camera TO target. A face normal points OUT.
-    // So we want the face normal that is most opposite to camDir (dot product approaches -1)
-
-    // Check 6 directions
-    const checkDirs = [
-        new THREE.Vector3(1, 0, 0),  // Right
-        new THREE.Vector3(-1, 0, 0), // Left
-        new THREE.Vector3(0, 1, 0),  // Top
-        new THREE.Vector3(0, -1, 0), // Bottom
-        new THREE.Vector3(0, 0, 1),  // Front
-        new THREE.Vector3(0, 0, -1)  // Back
+function autoOrient(colors) {
+    // Rotate the colors array to match canonical orientation
+    // For each face, the center sticker should match the face color
+    // We'll try 0, 90, 180, 270 degree rotations and pick the best match
+    
+    const currentFace = FACE_ORDER[currentFaceIndex];
+    const expectedCenter = getExpectedCenterColor(currentFace);
+    
+    // Pre-calculate all 4 rotations
+    const rotations = [
+        colors, // 0 degrees
+        [ // 90 degrees clockwise
+            colors[6], colors[3], colors[0],
+            colors[7], colors[4], colors[1],
+            colors[8], colors[5], colors[2]
+        ],
+        [ // 180 degrees
+            colors[8], colors[7], colors[6],
+            colors[5], colors[4], colors[3],
+            colors[2], colors[1], colors[0]
+        ],
+        [ // 270 degrees clockwise
+            colors[2], colors[5], colors[8],
+            colors[1], colors[4], colors[7],
+            colors[0], colors[3], colors[6]
+        ]
     ];
-
-    let bestDot = Infinity;
-    let targetNormal = null;
-
-    checkDirs.forEach(dir => {
-        const dot = camDir.dot(dir);
-        if (dot < bestDot) {
-            bestDot = dot;
-            targetNormal = dir;
+    
+    // Find rotation where center matches expected
+    for (let i = 0; i < rotations.length; i++) {
+        if (rotations[i][4].name === expectedCenter) {
+            return rotations[i];
         }
-    });
-
-    // Apply colors to cubies on this face
-    // We need to map the 3x3 grid (row-major) to the spatial coordinates
-    // This mapping depends on the face.
-    // Standard mapping: Row 0 is Top (High Y), Row 2 is Bottom.
-    // Col 0 is Left, Col 2 is Right.
-
-    // Filter cubies on this face
-    const epsilon = 0.1;
-    const faceCubies = cubies.filter(c => {
-        const pos = new THREE.Vector3();
-        c.getWorldPosition(pos);
-        if (targetNormal.x !== 0) return Math.abs(pos.x - targetNormal.x * 1.02) < epsilon;
-        if (targetNormal.y !== 0) return Math.abs(pos.y - targetNormal.y * 1.02) < epsilon;
-        if (targetNormal.z !== 0) return Math.abs(pos.z - targetNormal.z * 1.02) < epsilon;
-        return false;
-    });
-
-    // Sort valid cubies to match grid order (Top-Left to Bottom-Right relative to view)
-    // This is tricky because "Top-Left" depends on the face orientation relative to camera UP.
-    // SIMPLIFICATION: Using fixed logic assuming standard upright camera.
-    // Left-Right is usually Cross Product of Normal and Up.
-    // Up-Down is usually projected Y or similar.
-
-    // Let's sort based on Y descending (Top->Bottom), then by secondary axis.
-
-    faceCubies.sort((a, b) => {
-        const posA = new THREE.Vector3(); a.getWorldPosition(posA);
-        const posB = new THREE.Vector3(); b.getWorldPosition(posB);
-
-        // Sorting logic varies by face
-        // Top/Bottom faces (Normal Y): Sort logic Z descending (Back->Front) then X (Left->Right)
-        if (Math.abs(targetNormal.y) > 0.5) {
-            const dz = posB.z - posA.z; // Diff Z
-            if (Math.abs(dz) > epsilon) return dz; // Sort Z descending
-            return posA.x - posB.x; // Sort X ascending
-        }
-
-        // Side faces: Sort Y descending (Top->Bottom)
-        const dy = posB.y - posA.y;
-        if (Math.abs(dy) > epsilon) return dy;
-
-        // Then secondary:
-        if (Math.abs(targetNormal.x) > 0.5) {
-            // Right/Left faces: Sort Z descending (Front->Back?? No check coordinate space)
-            // Front (Z+) is +Z. Back is -Z.
-            // When looking at Right Face (X+), Left is Z+ (Front), Right is Z- (Back).
-            // Actually let's assume standard visual:
-            // Right Face: Left of screen is Front (Z+), Right of screen is Back (Z-) -> Sort Z descending
-            // Left Face: Left of screen is Back (Z-), Right of screen is Front (Z+) -> Sort Z ascending
-
-            if (targetNormal.x > 0) return posB.z - posA.z; // Right Face
-            else return posA.z - posB.z; // Left Face
-        } else {
-            // Front/Back faces (Z): Sort X ascending (Left->Right)
-            // Front (Z+): Left is X-, Right is X+ -> Sort X ascending
-            // Back (Z-): Left is X+, Right is X- (viewed from back) -> Sort X descending
-            if (targetNormal.z > 0) return posA.x - posB.x;
-            else return posB.x - posA.x;
-        }
-    });
-
-    // Apply colors
-    if (faceCubies.length !== 9) {
-        console.warn("Found " + faceCubies.length + " cubies, expected 9. Check alignment.");
-        return;
     }
+    
+    // If no match, return original
+    return colors;
+}
 
-    faceCubies.forEach((cubie, index) => {
-        if (colors[index] !== undefined) {
-            // We need to find the material index corresponding to the face normal
-            // Material indices: 0:Right, 1:Left, 2:Top, 3:Bottom, 4:Front, 5:Back
-            let matIndex = -1;
-            if (targetNormal.x > 0.5) matIndex = 0;
-            if (targetNormal.x < -0.5) matIndex = 1;
-            if (targetNormal.y > 0.5) matIndex = 2;
-            if (targetNormal.y < -0.5) matIndex = 3;
-            if (targetNormal.z > 0.5) matIndex = 4;
-            if (targetNormal.z < -0.5) matIndex = 5;
+function getExpectedCenterColor(face) {
+    const centerColors = {
+        'U': 'W', // Up = White
+        'R': 'R', // Right = Red
+        'F': 'G', // Front = Green
+        'D': 'Y', // Down = Yellow
+        'L': 'O', // Left = Orange
+        'B': 'B'  // Back = Blue
+    };
+    return centerColors[face] || 'W';
+}
 
-            if (matIndex >= 0) {
-                cubie.material[matIndex].color.setHex(colors[index]);
+function showCorrectionModal(colors) {
+    const currentFace = FACE_ORDER[currentFaceIndex];
+    document.getElementById('correction-face-name').textContent = FACE_NAMES[currentFace];
+    
+    // Create correction grid
+    correctionGrid.innerHTML = '';
+    colors.forEach((color, index) => {
+        const cell = document.createElement('div');
+        cell.className = 'correction-cell';
+        cell.style.backgroundColor = `#${color.hex.toString(16).padStart(6, '0')}`;
+        cell.dataset.index = index;
+        cell.dataset.colorName = color.name;
+        cell.addEventListener('click', () => selectCell(cell));
+        correctionGrid.appendChild(cell);
+    });
+    
+    // Create color palette
+    colorPalette.innerHTML = '';
+    STANDARD_COLORS.forEach(color => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.style.backgroundColor = `#${color.hex.toString(16).padStart(6, '0')}`;
+        swatch.dataset.colorName = color.name;
+        swatch.dataset.colorHex = color.hex;
+        swatch.addEventListener('click', () => applyColorToSelected(color));
+        colorPalette.appendChild(swatch);
+    });
+    
+    scannerModal.classList.add('hidden');
+    correctionModal.classList.remove('hidden');
+}
+
+let selectedCell = null;
+
+function selectCell(cell) {
+    if (selectedCell) {
+        selectedCell.classList.remove('selected');
+    }
+    selectedCell = cell;
+    cell.classList.add('selected');
+}
+
+function applyColorToSelected(color) {
+    if (!selectedCell) {
+        // Apply to first cell by default
+        selectedCell = correctionGrid.children[0];
+    }
+    
+    selectedCell.style.backgroundColor = `#${color.hex.toString(16).padStart(6, '0')}`;
+    selectedCell.dataset.colorName = color.name;
+    
+    // Move to next cell
+    const index = parseInt(selectedCell.dataset.index);
+    if (index < 8) {
+        selectedCell.classList.remove('selected');
+        selectedCell = correctionGrid.children[index + 1];
+        selectedCell.classList.add('selected');
+    }
+}
+
+function confirmCorrection() {
+    // Get corrected colors
+    const correctedColors = [];
+    for (let i = 0; i < 9; i++) {
+        const cell = correctionGrid.children[i];
+        const colorName = cell.dataset.colorName;
+        const color = STANDARD_COLORS.find(c => c.name === colorName);
+        correctedColors.push(color);
+    }
+    
+    // Store the face
+    const currentFace = FACE_ORDER[currentFaceIndex];
+    scannedFaces[currentFace] = correctedColors;
+    
+    // Move to next face or finish
+    currentFaceIndex++;
+    selectedCell = null;
+    
+    if (currentFaceIndex < FACE_ORDER.length) {
+        // Continue to next face
+        correctionModal.classList.add('hidden');
+        scannerModal.classList.remove('hidden');
+        updateScannerUI();
+    } else {
+        // All faces scanned, show export
+        correctionModal.classList.add('hidden');
+        closeScanner();
+        showExportModal();
+    }
+}
+
+function recaptureFace() {
+    selectedCell = null;
+    correctionModal.classList.add('hidden');
+    scannerModal.classList.remove('hidden');
+}
+
+function showExportModal() {
+    // Generate thumbnail
+    generateThumbnail();
+    
+    // Generate Kociemba string
+    const kociembaString = generateKociembaString();
+    const input = document.getElementById('export-string');
+    input.value = kociembaString;
+    input.classList.remove('invalid');
+    
+    // Add input validation
+    input.addEventListener('input', validateKociembaString);
+    
+    exportModal.classList.remove('hidden');
+}
+
+function validateKociembaString() {
+    const input = document.getElementById('export-string');
+    const value = input.value.toUpperCase();
+    const validChars = /^[ROWYG B]*$/;
+    const isValid = value.length === 54 && validChars.test(value);
+    
+    if (isValid) {
+        input.classList.remove('invalid');
+    } else {
+        input.classList.add('invalid');
+    }
+    
+    return isValid;
+}
+
+function generateThumbnail() {
+    const canvas = document.getElementById('export-thumbnail');
+    const ctx = canvas.getContext('2d');
+    const cellSize = 30;
+    const padding = 10;
+    
+    // Clear canvas
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw faces in cross pattern
+    const layout = [
+        { face: 'U', x: 3, y: 0 },
+        { face: 'L', x: 0, y: 3 },
+        { face: 'F', x: 3, y: 3 },
+        { face: 'R', x: 6, y: 3 },
+        { face: 'B', x: 9, y: 3 },
+        { face: 'D', x: 3, y: 6 }
+    ];
+    
+    layout.forEach(({ face, x, y }) => {
+        const colors = scannedFaces[face] || Array(9).fill(STANDARD_COLORS[0]);
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                const color = colors[row * 3 + col];
+                ctx.fillStyle = `#${color.hex.toString(16).padStart(6, '0')}`;
+                const px = padding + (x + col) * cellSize;
+                const py = padding + (y + row) * cellSize;
+                ctx.fillRect(px, py, cellSize - 2, cellSize - 2);
             }
         }
+        
+        // Draw face label
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px sans-serif';
+        ctx.fillText(face, padding + x * cellSize + cellSize, padding + y * cellSize - 5);
     });
+}
 
-    // IMPORTANT: Invalidate History because this is a "cheat"
+function generateKociembaString() {
+    // Kociemba format: UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB
+    // Each face contributes 9 characters
+    let str = '';
+    FACE_ORDER.forEach(face => {
+        const colors = scannedFaces[face] || Array(9).fill(STANDARD_COLORS[0]);
+        colors.forEach(color => {
+            str += color.name;
+        });
+    });
+    return str;
+}
+
+async function copyKociembaString() {
+    const input = document.getElementById('export-string');
+    const text = input.value;
+    
+    try {
+        // Try modern Clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            alert('Copied to clipboard!');
+        } else {
+            // Fallback for older browsers
+            input.select();
+            document.execCommand('copy');
+            alert('Copied to clipboard!');
+        }
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard. Please copy manually.');
+    }
+}
+
+function applyToCube() {
+    // Validate the Kociemba string
+    if (!validateKociembaString()) {
+        alert('Invalid Kociemba string! Must be exactly 54 characters using only R, O, W, Y, G, B.');
+        return;
+    }
+    
+    // Get the Kociemba string from input (may be manually edited)
+    const input = document.getElementById('export-string');
+    const kociembaString = input.value.toUpperCase();
+    
+    // Parse the Kociemba string and apply colors to the 3D cube
+    // Format: UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB
+    let stringIndex = 0;
+    
+    FACE_ORDER.forEach((face) => {
+        // Map face to material index
+        const materialIndexMap = {
+            'U': 2, // Top
+            'D': 3, // Bottom
+            'F': 4, // Front
+            'B': 5, // Back
+            'R': 0, // Right
+            'L': 1  // Left
+        };
+        
+        const matIndex = materialIndexMap[face];
+        
+        // Get cubies for this face
+        const faceCubies = getCubiesForFace(face);
+        
+        // Apply colors from the Kociemba string
+        faceCubies.forEach((cubie, index) => {
+            if (stringIndex < kociembaString.length && cubie && cubie.material[matIndex]) {
+                const colorChar = kociembaString[stringIndex];
+                const color = STANDARD_COLORS.find(c => c.name === colorChar);
+                if (color) {
+                    cubie.material[matIndex].color.setHex(color.hex);
+                }
+                stringIndex++;
+            }
+        });
+    });
+    
+    // Clear move history
     moveHistory.length = 0;
-    alert("Face colors applied! Move history cleared.");
+    
+    alert('Colors applied to 3D cube! You can continue editing the Kociemba string and re-apply.');
+}
+
+function getCubiesForFace(face) {
+    const epsilon = 0.1;
+    const offset = CUBE_SIZE + SPACING;
+    
+    let filter, sorter;
+    
+    switch (face) {
+        case 'U': // Top (y=1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.y - offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dz = posB.z - posA.z;
+                if (Math.abs(dz) > epsilon) return dz;
+                return posA.x - posB.x;
+            };
+            break;
+        case 'D': // Bottom (y=-1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.y + offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dz = posA.z - posB.z;
+                if (Math.abs(dz) > epsilon) return dz;
+                return posA.x - posB.x;
+            };
+            break;
+        case 'F': // Front (z=1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.z - offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dy = posB.y - posA.y;
+                if (Math.abs(dy) > epsilon) return dy;
+                return posA.x - posB.x;
+            };
+            break;
+        case 'B': // Back (z=-1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.z + offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dy = posB.y - posA.y;
+                if (Math.abs(dy) > epsilon) return dy;
+                return posB.x - posA.x;
+            };
+            break;
+        case 'R': // Right (x=1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.x - offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dy = posB.y - posA.y;
+                if (Math.abs(dy) > epsilon) return dy;
+                return posB.z - posA.z;
+            };
+            break;
+        case 'L': // Left (x=-1)
+            filter = c => {
+                const pos = new THREE.Vector3();
+                c.getWorldPosition(pos);
+                return Math.abs(pos.x + offset) < epsilon;
+            };
+            sorter = (a, b) => {
+                const posA = new THREE.Vector3(); a.getWorldPosition(posA);
+                const posB = new THREE.Vector3(); b.getWorldPosition(posB);
+                const dy = posB.y - posA.y;
+                if (Math.abs(dy) > epsilon) return dy;
+                return posA.z - posB.z;
+            };
+            break;
+    }
+    
+    return cubies.filter(filter).sort(sorter);
+}
+
+function closeExport() {
+    exportModal.classList.add('hidden');
 }
 
 // --- Scanner End ---

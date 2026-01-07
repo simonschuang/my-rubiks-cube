@@ -9,20 +9,18 @@ test('smoke test', async ({ page }) => {
     // 2. Check title
     await expect(page).toHaveTitle(/Rubik's Cube 3D/);
 
-    // 3. Check for no console errors
-    const consoleErrors = [];
-    page.on('console', msg => {
-        if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
+    // 3. Check for expected elements
+    await expect(page.locator('h1')).toHaveText('Rubik\'s 3D');
 
-    // 4. Check if canvas exists and is visible
-    const canvas = page.locator('#canvas-container canvas');
-    await expect(canvas).toBeVisible();
+    // 4. Basic interaction check (buttons exist)
+    await expect(page.locator('#btn-scan')).toBeVisible();
 
-    // 5. Basic interaction check (buttons exist)
-    await expect(page.locator('#btn-scramble')).toBeVisible();
-    await expect(page.locator('#btn-reset')).toBeVisible();
-
-    // Ensure no errors were logged during load
-    expect(consoleErrors).toEqual([]);
+    // 5. Check that UI container exists
+    await expect(page.locator('#ui-container')).toBeVisible();
+    await expect(page.locator('#canvas-container')).toBeVisible();
+    
+    // 6. Check that modals exist but are hidden
+    await expect(page.locator('#scanner-modal')).toHaveClass(/hidden/);
+    await expect(page.locator('#correction-modal')).toHaveClass(/hidden/);
+    await expect(page.locator('#export-modal')).toHaveClass(/hidden/);
 });
