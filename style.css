@@ -252,6 +252,74 @@ button:active {
     flex-wrap: wrap;
 }
 
+.scanner-adjustments {
+    margin: 1rem auto;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 8px;
+    max-width: 400px;
+}
+
+.adjustment-control {
+    margin-bottom: 0.75rem;
+}
+
+.adjustment-control:last-child {
+    margin-bottom: 0;
+}
+
+.adjustment-control label {
+    display: block;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+
+.adjustment-control span {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.adjustment-control input[type="range"] {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.adjustment-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.adjustment-control input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
+.adjustment-control input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+}
+
+.adjustment-control input[type="range"]::-moz-range-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+}
+
 .scanner-tip {
     margin-top: 1rem;
     font-size: 0.85rem;

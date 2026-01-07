@@ -580,6 +580,28 @@ document.getElementById('btn-apply-to-cube').addEventListener('click', applyToCu
 document.getElementById('btn-close-export').addEventListener('click', closeExport);
 document.getElementById('btn-copy-string').addEventListener('click', copyKociembaString);
 
+// Color adjustment controls
+let brightness = 100;
+let contrast = 100;
+
+document.getElementById('brightness-slider').addEventListener('input', (e) => {
+    brightness = parseInt(e.target.value);
+    document.getElementById('brightness-value').textContent = brightness;
+    applyVideoFilters();
+});
+
+document.getElementById('contrast-slider').addEventListener('input', (e) => {
+    contrast = parseInt(e.target.value);
+    document.getElementById('contrast-value').textContent = contrast;
+    applyVideoFilters();
+});
+
+function applyVideoFilters() {
+    if (scannerVideo) {
+        scannerVideo.style.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+    }
+}
+
 async function openScanner() {
     // Wait for OpenCV if not ready
     if (!opencvReady && typeof cv !== 'undefined') {
@@ -595,6 +617,14 @@ async function openScanner() {
     currentFaceIndex = 0;
     scannedFaces = {};
     updateScannerUI();
+    
+    // Reset color adjustments
+    brightness = 100;
+    contrast = 100;
+    document.getElementById('brightness-slider').value = 100;
+    document.getElementById('contrast-slider').value = 100;
+    document.getElementById('brightness-value').textContent = '100';
+    document.getElementById('contrast-value').textContent = '100';
 
     scannerModal.classList.remove('hidden');
     try {
@@ -647,7 +677,11 @@ async function captureFace() {
     canvas.width = scannerVideo.videoWidth;
     canvas.height = scannerVideo.videoHeight;
     const ctx = canvas.getContext('2d');
+    
+    // Apply brightness and contrast adjustments to captured image
+    ctx.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
     ctx.drawImage(scannerVideo, 0, 0);
+    ctx.filter = 'none'; // Reset filter
 
     // Process with OpenCV
     let colors;
