@@ -353,6 +353,24 @@ button:active {
     font-family: monospace;
     font-size: 0.9rem;
     margin-bottom: 0.5rem;
+    transition: border-color 0.2s;
+}
+
+#export-string:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+#export-string.invalid {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.export-hint {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-top: 0.5rem;
+    line-height: 1.4;
 }
 
 button.small {

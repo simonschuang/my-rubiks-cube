@@ -1048,9 +1048,29 @@ function showExportModal() {
     
     // Generate Kociemba string
     const kociembaString = generateKociembaString();
-    document.getElementById('export-string').value = kociembaString;
+    const input = document.getElementById('export-string');
+    input.value = kociembaString;
+    input.classList.remove('invalid');
+    
+    // Add input validation
+    input.addEventListener('input', validateKociembaString);
     
     exportModal.classList.remove('hidden');
+}
+
+function validateKociembaString() {
+    const input = document.getElementById('export-string');
+    const value = input.value.toUpperCase();
+    const validChars = /^[ROWYG B]*$/;
+    const isValid = value.length === 54 && validChars.test(value);
+    
+    if (isValid) {
+        input.classList.remove('invalid');
+    } else {
+        input.classList.add('invalid');
+    }
+    
+    return isValid;
 }
 
 function generateThumbnail() {
@@ -1127,11 +1147,21 @@ async function copyKociembaString() {
 }
 
 function applyToCube() {
-    // Apply scanned colors to the 3D cube
-    FACE_ORDER.forEach((face, faceIndex) => {
-        const colors = scannedFaces[face];
-        if (!colors) return;
-        
+    // Validate the Kociemba string
+    if (!validateKociembaString()) {
+        alert('Invalid Kociemba string! Must be exactly 54 characters using only R, O, W, Y, G, B.');
+        return;
+    }
+    
+    // Get the Kociemba string from input (may be manually edited)
+    const input = document.getElementById('export-string');
+    const kociembaString = input.value.toUpperCase();
+    
+    // Parse the Kociemba string and apply colors to the 3D cube
+    // Format: UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB
+    let stringIndex = 0;
+    
+    FACE_ORDER.forEach((face) => {
         // Map face to material index
         const materialIndexMap = {
             'U': 2, // Top
@@ -1147,10 +1177,15 @@ function applyToCube() {
         // Get cubies for this face
         const faceCubies = getCubiesForFace(face);
         
-        // Apply colors
+        // Apply colors from the Kociemba string
         faceCubies.forEach((cubie, index) => {
-            if (colors[index] && cubie && cubie.material[matIndex]) {
-                cubie.material[matIndex].color.setHex(colors[index].hex);
+            if (stringIndex < kociembaString.length && cubie && cubie.material[matIndex]) {
+                const colorChar = kociembaString[stringIndex];
+                const color = STANDARD_COLORS.find(c => c.name === colorChar);
+                if (color) {
+                    cubie.material[matIndex].color.setHex(color.hex);
+                }
+                stringIndex++;
             }
         });
     });
@@ -1159,7 +1194,7 @@ function applyToCube() {
     moveHistory.length = 0;
     
     closeExport();
-    alert('Colors applied to 3D cube!');
+    alert('Colors applied to 3D cube from Kociemba string!');
 }
 
 function getCubiesForFace(face) {
