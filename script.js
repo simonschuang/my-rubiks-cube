@@ -1193,8 +1193,7 @@ function applyToCube() {
     // Clear move history
     moveHistory.length = 0;
     
-    closeExport();
-    alert('Colors applied to 3D cube from Kociemba string!');
+    alert('Colors applied to 3D cube! You can continue editing the Kociemba string and re-apply.');
 }
 
 function getCubiesForFace(face) {
